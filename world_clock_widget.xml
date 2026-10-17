@@ -1,0 +1,19 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widgetRoot" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="14dp" android:background="@drawable/widget_bg">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ORBIT  /  WORLD CLOCKS" android:textColor="#72F0C0" android:textSize="10sp" android:letterSpacing="0.12" android:textStyle="bold" />
+    <LinearLayout android:id="@+id/slot1" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp">
+        <TextView android:id="@+id/city1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Lagos" android:textColor="#F3F5FF" android:textSize="13sp" />
+        <TextClock android:id="@+id/time1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:format12Hour="h:mm a" android:format24Hour="HH:mm" android:timeZone="Africa/Lagos" android:textColor="#FFFFFF" android:textSize="18sp" android:fontFamily="monospace" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/slot2" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp">
+        <TextView android:id="@+id/city2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="London" android:textColor="#F3F5FF" android:textSize="13sp" />
+        <TextClock android:id="@+id/time2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:format12Hour="h:mm a" android:format24Hour="HH:mm" android:timeZone="Europe/London" android:textColor="#FFFFFF" android:textSize="18sp" android:fontFamily="monospace" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/slot3" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp">
+        <TextView android:id="@+id/city3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="New York" android:textColor="#F3F5FF" android:textSize="13sp" />
+        <TextClock android:id="@+id/time3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:format12Hour="h:mm a" android:format24Hour="HH:mm" android:timeZone="America/New_York" android:textColor="#FFFFFF" android:textSize="18sp" android:fontFamily="monospace" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/slot4" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="6dp">
+        <TextView android:id="@+id/city4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Tokyo" android:textColor="#F3F5FF" android:textSize="13sp" />
+        <TextClock android:id="@+id/time4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:format12Hour="h:mm a" android:format24Hour="HH:mm" android:timeZone="Asia/Tokyo" android:textColor="#FFFFFF" android:textSize="18sp" android:fontFamily="monospace" />
+    </LinearLayout>
+</LinearLayout>
