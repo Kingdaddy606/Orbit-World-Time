@@ -34,7 +34,21 @@ jobs:
 
       - name: Align Java and Kotlin versions
         run: |
-          sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' extracted/WorldTimeAndroid/app/build.gradle
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("extracted/WorldTimeAndroid")
+
+          for p in root.rglob("build.gradle*"):
+              s = p.read_text()
+              s = s.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+              s = s.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+              s = s.replace("VERSION_1_8", "VERSION_17")
+              s = s.replace("jvmTarget = '1.8'", "jvmTarget = '17'")
+              s = s.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
+              s = s.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
+              p.write_text(s)
+          PY
 
       - name: Build APK
         run: |
