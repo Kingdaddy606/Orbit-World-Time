@@ -34,27 +34,14 @@ jobs:
 
       - name: Configure Java and Kotlin targets
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          cat >> extracted/WorldTimeAndroid/app/build.gradle <<'GRADLE'
 
-          root = Path("extracted/WorldTimeAndroid")
-          app_gradle = root / "app" / "build.gradle"
-
-          if not app_gradle.exists():
-              raise SystemExit(f"Could not find {app_gradle}")
-
-          text = app_gradle.read_text()
-          text = text.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
-          text = text.replace("VERSION_1_8", "VERSION_17")
-          text = text.replace("jvmTarget = '1.8'", "jvmTarget = '17'")
-          text = text.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
-
-          text += """
-
-          // Force Java and Kotlin to use the same JVM target.
-          tasks.withType(JavaCompile).configureEach {
-              sourceCompatibility = JavaVersion.VERSION_17.toString()
-              targetCompatibility = JavaVersion.VERSION_17.toString()
+          // Ensure Java and Kotlin compile for the same JVM version.
+          android {
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
           }
 
           tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
@@ -62,11 +49,9 @@ jobs:
                   jvmTarget = "17"
               }
           }
-          """
+          GRADLE
 
-          app_gradle.write_text(text)
-          print("Updated app/build.gradle for Java 17.")
-          PY
+          echo "Applied Java 17 and Kotlin 17 compilation settings."
 
       - name: Build APK
         run: |
