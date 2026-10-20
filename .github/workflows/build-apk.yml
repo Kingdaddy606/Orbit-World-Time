@@ -1,3 +1,4 @@
+
 name: Build Orbit World Time APK
 
 on:
@@ -13,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Orbit World Time debug APK
+    name: Build debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -25,48 +26,124 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - name: Set up Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Extract project and restore the icon already in the repository
-        shell: bash
+      - name: Verify project ZIP exists
         run: |
-          set -euo pipefail
-          ZIP_FILE="Orbit_World_Time_Premium_Restored.zip"
-          if [[ ! -f "$ZIP_FILE" ]]; then
-            echo "ERROR: $ZIP_FILE is missing from the repository root."
+          test -f Orbit_World_Time_Premium_Restored.zip || {
+            echo "ERROR: Orbit_World_Time_Premium_Restored.zip was not found in the repository root."
             exit 1
-          fi
-          if [[ ! -f "orbit_icon.png" ]]; then
-            echo "ERROR: orbit_icon.png is missing from the repository root. Keep the existing icon file there."
-            exit 1
-          fi
-          rm -rf extracted
+          }
+
+      - name: Extract Android project
+        run: |
           mkdir -p extracted
-          unzip -o "$ZIP_FILE" -d extracted
-          PROJECT="extracted/WorldTimeAndroid"
-          test -f "$PROJECT/settings.gradle"
-          test -f "$PROJECT/app/build.gradle"
-          RES="$PROJECT/app/src/main/res"
-          mkdir -p "$RES/drawable-nodpi" "$RES/mipmap-mdpi" "$RES/mipmap-hdpi" "$RES/mipmap-xhdpi" "$RES/mipmap-xxhdpi" "$RES/mipmap-xxxhdpi"
-          cp orbit_icon.png "$RES/drawable-nodpi/orbit_icon.png"
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            cp orbit_icon.png "$RES/mipmap-$density/orbit_launcher.png"
-          done
-          test -f "$RES/mipmap-xxxhdpi/orbit_launcher.png"
-          echo "Using the repository's existing orbit_icon.png as the app launcher icon."
+          unzip -q Orbit_World_Time_Premium_Restored.zip -d extracted
+
+          PROJECT_DIR="$(find extracted -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Could not find settings.gradle or settings.gradle.kts inside the ZIP."
+            find extracted -maxdepth 4 -type f | head -n 100
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$PROJECT_DIR")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at: $PROJECT_DIR"
+
+      - name: Install existing repository icon
+        run: |
+          if [ -f orbit_icon.png ]; then
+            mkdir -p "$PROJECT_DIR/app/src/main/res/drawable-nodpi"
+            cp orbit_icon.png "$PROJECT_DIR/app/src/main/res/drawable-nodpi/orbit_icon.png"
+            echo "Copied repository icon into Android resources."
+          else
+            echo "WARNING: orbit_icon.png was not found in the repository root."
+          fi
+
+      - name: Configure Java and Kotlin JVM targets
+        run: |
+          python3 - "$PROJECT_DIR/app/build.gradle" "$PROJECT_DIR/app/build.gradle.kts" <<'PY'
+          import pathlib
+          import sys
+
+          groovy = pathlib.Path(sys.argv[1])
+          kotlin = pathlib.Path(sys.argv[2])
+
+          if groovy.exists():
+              p = groovy
+              text = p.read_text()
+              if "compileOptions" not in text:
+                  text += """
+
+          android {
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          """
+              else:
+                  import re
+                  if re.search(r"sourceCompatibility\s+JavaVersion\.VERSION_1_8", text):
+                      text = re.sub(r"sourceCompatibility\s+JavaVersion\.VERSION_1_8", "sourceCompatibility JavaVersion.VERSION_17", text)
+                  if re.search(r"targetCompatibility\s+JavaVersion\.VERSION_1_8", text):
+                      text = re.sub(r"targetCompatibility\s+JavaVersion.VERSION_1_8", "targetCompatibility JavaVersion.VERSION_17", text)
+              if "kotlinOptions" not in text and "kotlin {" not in text:
+                  text += """
+
+          tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          """
+              p.write_text(text)
+          elif kotlin.exists():
+              p = kotlin
+              text = p.read_text()
+              if "compileOptions" not in text:
+                  text += """
+
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          }
+          """
+              else:
+                  text = text.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+              if "jvmTarget" not in text:
+                  text += """
+
+          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              compilerOptions {
+                  jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+              }
+          }
+          """
+              p.write_text(text)
+          else:
+              raise SystemExit("ERROR: app/build.gradle or app/build.gradle.kts was not found.")
+          PY
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        working-directory: extracted/WorldTimeAndroid
-        run: gradle --no-daemon assembleDebug
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          chmod +x ./gradlew 2>/dev/null || true
+          if [ -f ./gradlew ]; then
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Orbit-World-Time-debug-apk
-          path: extracted/WorldTimeAndroid/app/build/outputs/apk/debug/app-debug.apk
+          name: Orbit-World-Time-debug-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
