@@ -32,45 +32,73 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Fix Android source and compiler settings
+      - name: Replace launcher icon and fix compiler settings
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import shutil
 
           root = Path("extracted/WorldTimeAndroid")
+          icon = Path("orbit_icon.png")
           source = root / "app/src/main/java/com/orbit/worldtime/MainActivity.kt"
           gradle_file = root / "app/build.gradle"
+          res = root / "app/src/main/res"
 
-          if not source.exists():
+          if not icon.is_file():
+              raise SystemExit(
+                  "orbit_icon.png not found. Upload it to the repository root."
+              )
+
+          if not source.is_file():
               raise SystemExit(f"Source file not found: {source}")
 
-          code = source.read_text()
-          if "singleLine = true" in code:
-              code = code.replace("singleLine = true", "setSingleLine(true)")
-              source.write_text(code)
-              print("Fixed the singleLine compiler error.")
-          else:
-              print("singleLine assignment not found; checking compilation next.")
-
-          if not gradle_file.exists():
+          if not gradle_file.is_file():
               raise SystemExit(f"Gradle file not found: {gradle_file}")
 
+          if not res.is_dir():
+              raise SystemExit(f"Android resources not found: {res}")
+
+          # Replace existing PNG launcher icons in all mipmap folders.
+          targets = []
+          for folder in res.glob("mipmap-*"):
+              if not folder.is_dir():
+                  continue
+              for name in ("ic_launcher.png", "ic_launcher_round.png",
+                           "ic_launcher_foreground.png"):
+                  target = folder / name
+                  if target.is_file():
+                      targets.append(target)
+
+          if not targets:
+              raise SystemExit(
+                  "No existing PNG launcher icons found in mipmap folders. "
+                  "The resource layout must be checked before building."
+              )
+
+          for target in targets:
+              shutil.copyfile(icon, target)
+              print(f"Replaced launcher icon: {target}")
+
+          print(f"Updated {len(targets)} launcher icon file(s).")
+
+          # Fix the Kotlin source compilation error from the previous build.
+          code = source.read_text()
+          code = code.replace("singleLine = true", "setSingleLine(true)")
+          source.write_text(code)
+
+          # Align Java and Kotlin bytecode targets.
           gradle_code = gradle_file.read_text()
           gradle_code = gradle_code.replace(
-              "JavaVersion.VERSION_1_8",
-              "JavaVersion.VERSION_17"
+              "JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17"
           )
           gradle_code = gradle_code.replace(
-              "VERSION_1_8",
-              "VERSION_17"
+              "VERSION_1_8", "VERSION_17"
           )
           gradle_code = gradle_code.replace(
-              "jvmTarget = '1.8'",
-              "jvmTarget = '17'"
+              "jvmTarget = '1.8'", "jvmTarget = '17'"
           )
           gradle_code = gradle_code.replace(
-              'jvmTarget = "1.8"',
-              'jvmTarget = "17"'
+              'jvmTarget = "1.8"', 'jvmTarget = "17"'
           )
 
           gradle_code += """
