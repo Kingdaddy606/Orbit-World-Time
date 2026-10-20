@@ -13,8 +13,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Extract Android project ZIP
-        run: |
-          unzip -o Orbit_World_Time_Android_Project.zip -d extracted
+        run: unzip -o Orbit_World_Time_Android_Project.zip -d extracted
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -33,6 +32,10 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Align Java and Kotlin versions
+        run: |
+          sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' extracted/WorldTimeAndroid/app/build.gradle
+
       - name: Build APK
         run: |
           cd extracted/WorldTimeAndroid
@@ -44,4 +47,3 @@ jobs:
           name: Orbit-World-Time-APK
           path: extracted/WorldTimeAndroid/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          
