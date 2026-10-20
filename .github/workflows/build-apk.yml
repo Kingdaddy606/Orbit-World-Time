@@ -32,22 +32,40 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Align Java and Kotlin versions
+      - name: Configure Java and Kotlin targets
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           root = Path("extracted/WorldTimeAndroid")
+          app_gradle = root / "app" / "build.gradle"
 
-          for p in root.rglob("build.gradle*"):
-              s = p.read_text()
-              s = s.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
-              s = s.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
-              s = s.replace("VERSION_1_8", "VERSION_17")
-              s = s.replace("jvmTarget = '1.8'", "jvmTarget = '17'")
-              s = s.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
-              s = s.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
-              p.write_text(s)
+          if not app_gradle.exists():
+              raise SystemExit(f"Could not find {app_gradle}")
+
+          text = app_gradle.read_text()
+          text = text.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+          text = text.replace("VERSION_1_8", "VERSION_17")
+          text = text.replace("jvmTarget = '1.8'", "jvmTarget = '17'")
+          text = text.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
+
+          text += """
+
+          // Force Java and Kotlin to use the same JVM target.
+          tasks.withType(JavaCompile).configureEach {
+              sourceCompatibility = JavaVersion.VERSION_17.toString()
+              targetCompatibility = JavaVersion.VERSION_17.toString()
+          }
+
+          tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          """
+
+          app_gradle.write_text(text)
+          print("Updated app/build.gradle for Java 17.")
           PY
 
       - name: Build APK
