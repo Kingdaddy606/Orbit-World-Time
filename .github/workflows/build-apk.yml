@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build Orbit World Time debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -27,123 +27,428 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify project ZIP exists
-        run: |
-          test -f Orbit_World_Time_Premium_Restored.zip || {
-            echo "ERROR: Orbit_World_Time_Premium_Restored.zip was not found in the repository root."
-            exit 1
-          }
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
       - name: Extract Android project
+        shell: bash
         run: |
-          mkdir -p extracted
-          unzip -q Orbit_World_Time_Premium_Restored.zip -d extracted
+          set -euo pipefail
 
-          PROJECT_DIR="$(find extracted -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Could not find settings.gradle or settings.gradle.kts inside the ZIP."
-            find extracted -maxdepth 4 -type f | head -n 100
+          ZIP_FILE="Orbit_World_Time_Premium_Restored.zip"
+
+          test -f "$ZIP_FILE" || {
+            echo "ERROR: $ZIP_FILE is missing from the repository root."
+            exit 1
+          }
+
+          rm -rf extracted
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          PROJECT="extracted/WorldTimeAndroid"
+
+          test -f "$PROJECT/settings.gradle"
+          test -f "$PROJECT/app/build.gradle"
+          test -f "$PROJECT/app/src/main/AndroidManifest.xml"
+
+          echo "Project extracted successfully."
+
+      - name: Replace widget implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT="extracted/WorldTimeAndroid"
+          JAVA="$PROJECT/app/src/main/java/com/orbit/worldtime"
+          RES="$PROJECT/app/src/main/res"
+
+          mkdir -p "$JAVA" "$RES/layout" "$RES/xml"
+
+          cat > "$JAVA/WorldClockWidget.kt" <<'KOTLIN'
+          package com.orbit.worldtime
+
+          import android.appwidget.AppWidgetManager
+          import android.appwidget.AppWidgetProvider
+          import android.content.ComponentName
+          import android.content.Context
+          import android.content.Intent
+          import android.view.View
+          import android.widget.RemoteViews
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+          import java.util.TimeZone
+
+          class WorldClockWidget : AppWidgetProvider() {
+
+              override fun onUpdate(
+                  context: Context,
+                  manager: AppWidgetManager,
+                  ids: IntArray
+              ) {
+                  ids.forEach { update(context, manager, it) }
+              }
+
+              override fun onEnabled(context: Context) {
+                  super.onEnabled(context)
+                  refreshAll(context)
+              }
+
+              override fun onReceive(context: Context, intent: Intent) {
+                  super.onReceive(context, intent)
+
+                  if (intent.action == Intent.ACTION_TIME_TICK ||
+                      intent.action == Intent.ACTION_TIME_CHANGED ||
+                      intent.action == Intent.ACTION_TIMEZONE_CHANGED
+                  ) {
+                      refreshAll(context)
+                  }
+              }
+
+              companion object {
+                  private val defaults = listOf(
+                      "Africa/Lagos",
+                      "Europe/London",
+                      "America/New_York",
+                      "Asia/Tokyo"
+                  )
+
+                  fun update(
+                      context: Context,
+                      manager: AppWidgetManager,
+                      widgetId: Int
+                  ) {
+                      val prefs = context.getSharedPreferences(
+                          "orbit_world_time",
+                          Context.MODE_PRIVATE
+                      )
+
+                      val savedOrder = prefs.getString(
+                          "selected_zones_ordered",
+                          null
+                      )
+
+                      val zones = (
+                          if (savedOrder != null) {
+                              savedOrder.split("|")
+                                  .filter { it.isNotBlank() }
+                                  .distinct()
+                          } else {
+                              val saved = prefs.getStringSet(
+                                  "selected_zones",
+                                  null
+                              )
+
+                              if (saved == null) {
+                                  defaults
+                              } else {
+                                  defaults.filter { it in saved } +
+                                      saved.filter { it !in defaults }.sorted()
+                              }
+                          }
+                      ).take(4)
+
+                      val views = RemoteViews(
+                          context.packageName,
+                          R.layout.world_clock_widget
+                      )
+
+                      val cityIds = intArrayOf(
+                          R.id.city1, R.id.city2,
+                          R.id.city3, R.id.city4
+                      )
+
+                      val timeIds = intArrayOf(
+                          R.id.time1, R.id.time2,
+                          R.id.time3, R.id.time4
+                      )
+
+                      val slotIds = intArrayOf(
+                          R.id.slot1, R.id.slot2,
+                          R.id.slot3, R.id.slot4
+                      )
+
+                      val formatter = SimpleDateFormat(
+                          "HH:mm",
+                          Locale.getDefault()
+                      )
+
+                      val now = Date()
+
+                      for (i in 0..3) {
+                          if (i < zones.size) {
+                              val zone = zones[i]
+                              val city = zone.substringAfterLast('/')
+                                  .replace('_', ' ')
+
+                              formatter.timeZone = TimeZone.getTimeZone(zone)
+
+                              views.setTextViewText(cityIds[i], city)
+                              views.setTextViewText(
+                                  timeIds[i],
+                                  formatter.format(now)
+                              )
+                              views.setViewVisibility(
+                                  slotIds[i],
+                                  View.VISIBLE
+                              )
+                          } else {
+                              views.setViewVisibility(
+                                  slotIds[i],
+                                  View.GONE
+                              )
+                          }
+                      }
+
+                      manager.updateAppWidget(widgetId, views)
+                  }
+
+                  fun refreshAll(context: Context) {
+                      val manager = AppWidgetManager.getInstance(context)
+                      val component = ComponentName(
+                          context,
+                          WorldClockWidget::class.java
+                      )
+
+                      manager.getAppWidgetIds(component).forEach {
+                          update(context, manager, it)
+                      }
+                  }
+              }
+          }
+          KOTLIN
+
+          cat > "$RES/layout/world_clock_widget.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/widgetRoot"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:padding="16dp"
+              android:background="@drawable/widget_bg">
+
+              <TextView
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:text="ORBIT  /  WORLD CLOCKS"
+                  android:textColor="#A4D3C6"
+                  android:textSize="10sp"
+                  android:textStyle="bold"
+                  android:paddingBottom="8dp" />
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#35414D" />
+
+              <LinearLayout
+                  android:id="@+id/slot1"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical">
+                  <TextView
+                      android:id="@+id/city1"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:maxLines="1"
+                      android:text="Lagos"
+                      android:textColor="#E9EFEC"
+                      android:textSize="14sp" />
+                  <TextView
+                      android:id="@+id/time1"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="--:--"
+                      android:textColor="#FFFFFF"
+                      android:textSize="19sp"
+                      android:fontFamily="monospace" />
+              </LinearLayout>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#35414D" />
+
+              <LinearLayout
+                  android:id="@+id/slot2"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical">
+                  <TextView
+                      android:id="@+id/city2"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:maxLines="1"
+                      android:text="London"
+                      android:textColor="#E9EFEC"
+                      android:textSize="14sp" />
+                  <TextView
+                      android:id="@+id/time2"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="--:--"
+                      android:textColor="#FFFFFF"
+                      android:textSize="19sp"
+                      android:fontFamily="monospace" />
+              </LinearLayout>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#35414D" />
+
+              <LinearLayout
+                  android:id="@+id/slot3"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical">
+                  <TextView
+                      android:id="@+id/city3"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:maxLines="1"
+                      android:text="New York"
+                      android:textColor="#E9EFEC"
+                      android:textSize="14sp" />
+                  <TextView
+                      android:id="@+id/time3"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="--:--"
+                      android:textColor="#FFFFFF"
+                      android:textSize="19sp"
+                      android:fontFamily="monospace" />
+              </LinearLayout>
+
+              <View
+                  android:layout_width="match_parent"
+                  android:layout_height="1dp"
+                  android:background="#35414D" />
+
+              <LinearLayout
+                  android:id="@+id/slot4"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1"
+                  android:orientation="horizontal"
+                  android:gravity="center_vertical">
+                  <TextView
+                      android:id="@+id/city4"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:maxLines="1"
+                      android:text="Tokyo"
+                      android:textColor="#E9EFEC"
+                      android:textSize="14sp" />
+                  <TextView
+                      android:id="@+id/time4"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="--:--"
+                      android:textColor="#FFFFFF"
+                      android:textSize="19sp"
+                      android:fontFamily="monospace" />
+              </LinearLayout>
+          </LinearLayout>
+          XML
+
+          cat > "$RES/xml/world_clock_widget_info.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+              android:minWidth="250dp"
+              android:minHeight="150dp"
+              android:updatePeriodMillis="1800000"
+              android:initialLayout="@layout/world_clock_widget"
+              android:resizeMode="horizontal|vertical"
+              android:widgetCategory="home_screen" />
+          XML
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path(
+              "extracted/WorldTimeAndroid/app/src/main/AndroidManifest.xml"
+          )
+          text = manifest.read_text(encoding="utf-8")
+          update_action = (
+              '<action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>'
+          )
+          time_action = (
+              '<action android:name="android.intent.action.TIME_TICK"/>'
+              '<action android:name="android.intent.action.TIME_CHANGED"/>'
+              '<action android:name="android.intent.action.TIMEZONE_CHANGED"/>'
+          )
+
+          if update_action not in text:
+              raise SystemExit(
+                  "ERROR: Could not find the widget update action in AndroidManifest.xml"
+              )
+
+          if "android.intent.action.TIME_TICK" not in text:
+              text = text.replace(update_action, update_action + time_action)
+
+          manifest.write_text(text, encoding="utf-8")
+          PY
+
+          echo "Replacement widget source and layout installed."
+
+      - name: Restore original launcher icon
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT="extracted/WorldTimeAndroid"
+          RES="$PROJECT/app/src/main/res"
+
+          if [ -f orbit_icon.png ]; then
+            mkdir -p "$RES/drawable-nodpi"
+
+            cp orbit_icon.png "$RES/drawable-nodpi/orbit_icon.png"
+
+            for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+              mkdir -p "$RES/mipmap-$density"
+              cp orbit_icon.png "$RES/mipmap-$density/orbit_launcher.png"
+            done
+          else
+            echo "ERROR: orbit_icon.png is missing from the repository root."
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$PROJECT_DIR")"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found at: $PROJECT_DIR"
-
-      - name: Install existing repository icon
+      - name: Verify JVM targets
+        shell: bash
         run: |
-          if [ -f orbit_icon.png ]; then
-            mkdir -p "$PROJECT_DIR/app/src/main/res/drawable-nodpi"
-            cp orbit_icon.png "$PROJECT_DIR/app/src/main/res/drawable-nodpi/orbit_icon.png"
-            echo "Copied repository icon into Android resources."
-          else
-            echo "WARNING: orbit_icon.png was not found in the repository root."
-          fi
+          set -euo pipefail
 
-      - name: Configure Java and Kotlin JVM targets
-        run: |
-          python3 - "$PROJECT_DIR/app/build.gradle" "$PROJECT_DIR/app/build.gradle.kts" <<'PY'
-          import pathlib
-          import sys
+          GRADLE_FILE="extracted/WorldTimeAndroid/app/build.gradle"
 
-          groovy = pathlib.Path(sys.argv[1])
-          kotlin = pathlib.Path(sys.argv[2])
+          grep -q 'sourceCompatibility JavaVersion.VERSION_17' "$GRADLE_FILE"
+          grep -q 'targetCompatibility JavaVersion.VERSION_17' "$GRADLE_FILE"
+          grep -q "jvmTarget = '17'" "$GRADLE_FILE"
 
-          if groovy.exists():
-              p = groovy
-              text = p.read_text()
-              if "compileOptions" not in text:
-                  text += """
-
-          android {
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-          }
-          """
-              else:
-                  import re
-                  if re.search(r"sourceCompatibility\s+JavaVersion\.VERSION_1_8", text):
-                      text = re.sub(r"sourceCompatibility\s+JavaVersion\.VERSION_1_8", "sourceCompatibility JavaVersion.VERSION_17", text)
-                  if re.search(r"targetCompatibility\s+JavaVersion\.VERSION_1_8", text):
-                      text = re.sub(r"targetCompatibility\s+JavaVersion.VERSION_1_8", "targetCompatibility JavaVersion.VERSION_17", text)
-              if "kotlinOptions" not in text and "kotlin {" not in text:
-                  text += """
-
-          tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-          }
-          """
-              p.write_text(text)
-          elif kotlin.exists():
-              p = kotlin
-              text = p.read_text()
-              if "compileOptions" not in text:
-                  text += """
-
-          android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-          }
-          """
-              else:
-                  text = text.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
-              if "jvmTarget" not in text:
-                  text += """
-
-          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-              compilerOptions {
-                  jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-              }
-          }
-          """
-              p.write_text(text)
-          else:
-              raise SystemExit("ERROR: app/build.gradle or app/build.gradle.kts was not found.")
-          PY
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+          echo "Java and Kotlin both target JVM 17."
 
       - name: Build debug APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          chmod +x ./gradlew 2>/dev/null || true
-          if [ -f ./gradlew ]; then
-            ./gradlew --no-daemon assembleDebug
-          else
-            gradle --no-daemon assembleDebug
-          fi
+        working-directory: extracted/WorldTimeAndroid
+        run: gradle --no-daemon assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Orbit-World-Time-debug-APK
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          name: Orbit-World-Time-debug-apk
+          path: extracted/WorldTimeAndroid/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
