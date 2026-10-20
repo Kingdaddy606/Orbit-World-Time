@@ -1,69 +1,97 @@
+
 name: Build Orbit World Time APK
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'Orbit_World_Time_Premium_Minimalist_Fixed.zip'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Debug APK
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract redesigned project
-        run: unzip -o Orbit_World_Time_Android_Project.zip -d extracted
-
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Check project ZIP exists
+        run: |
+          if [ ! -f "Orbit_World_Time_Premium_Minimalist_Fixed.zip" ]; then
+            echo "ERROR: Orbit_World_Time_Premium_Minimalist_Fixed.zip was not found in the repository root."
+            echo "Upload the redesigned project ZIP to the main repository page."
+            exit 1
+          fi
 
-      - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Extract Android project
+        run: |
+          mkdir -p extracted
+          unzip -o Orbit_World_Time_Premium_Minimalist_Fixed.zip -d extracted
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+          if [ ! -f "extracted/WorldTimeAndroid/settings.gradle" ] && \
+             [ ! -f "extracted/WorldTimeAndroid/settings.gradle.kts" ]; then
+            echo "ERROR: Android project files were not found at extracted/WorldTimeAndroid."
+            echo "Check the folder structure inside the uploaded ZIP."
+            find extracted -maxdepth 4 -type f | head -100
+            exit 1
+          fi
 
       - name: Configure Java and Kotlin targets
+        working-directory: extracted/WorldTimeAndroid
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('extracted/WorldTimeAndroid/app/build.gradle')
-          s = p.read_text()
-          s = s.replace('JavaVersion.VERSION_1_8', 'JavaVersion.VERSION_17')
-          s = s.replace('VERSION_1_8', 'VERSION_17')
-          s = s.replace("jvmTarget = '1.8'", "jvmTarget = '17'")
-          s = s.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
-          s += '''
 
+          path = Path("app/build.gradle")
+          if not path.exists():
+              raise SystemExit("ERROR: app/build.gradle was not found.")
+
+          text = path.read_text()
+
+          if "compileOptions" not in text:
+              text += """
+          
           android {
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
           }
+          """
 
-          tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-              kotlinOptions { jvmTarget = "17" }
+          if "kotlinOptions" not in text:
+              text += """
+          
+          android {
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
           }
-          '''
-          p.write_text(s)
+          """
+
+          path.write_text(text)
+          print("Gradle Java/Kotlin target configuration checked.")
           PY
 
       - name: Build debug APK
+        working-directory: extracted/WorldTimeAndroid
         run: |
-          cd extracted/WorldTimeAndroid
           gradle --no-daemon assembleDebug
 
-      - name: Upload APK artifact
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Orbit-World-Time-APK
+          name: Orbit-World-Time-debug-apk
           path: extracted/WorldTimeAndroid/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
