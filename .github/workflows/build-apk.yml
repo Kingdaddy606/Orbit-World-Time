@@ -32,11 +32,49 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Configure Java and Kotlin targets
+      - name: Fix Android source and compiler settings
         run: |
-          cat >> extracted/WorldTimeAndroid/app/build.gradle <<'GRADLE'
+          python3 - <<'PY'
+          from pathlib import Path
 
-          // Ensure Java and Kotlin compile for the same JVM version.
+          root = Path("extracted/WorldTimeAndroid")
+          source = root / "app/src/main/java/com/orbit/worldtime/MainActivity.kt"
+          gradle_file = root / "app/build.gradle"
+
+          if not source.exists():
+              raise SystemExit(f"Source file not found: {source}")
+
+          code = source.read_text()
+          if "singleLine = true" in code:
+              code = code.replace("singleLine = true", "setSingleLine(true)")
+              source.write_text(code)
+              print("Fixed the singleLine compiler error.")
+          else:
+              print("singleLine assignment not found; checking compilation next.")
+
+          if not gradle_file.exists():
+              raise SystemExit(f"Gradle file not found: {gradle_file}")
+
+          gradle_code = gradle_file.read_text()
+          gradle_code = gradle_code.replace(
+              "JavaVersion.VERSION_1_8",
+              "JavaVersion.VERSION_17"
+          )
+          gradle_code = gradle_code.replace(
+              "VERSION_1_8",
+              "VERSION_17"
+          )
+          gradle_code = gradle_code.replace(
+              "jvmTarget = '1.8'",
+              "jvmTarget = '17'"
+          )
+          gradle_code = gradle_code.replace(
+              'jvmTarget = "1.8"',
+              'jvmTarget = "17"'
+          )
+
+          gradle_code += """
+
           android {
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
@@ -49,9 +87,11 @@ jobs:
                   jvmTarget = "17"
               }
           }
-          GRADLE
+          """
 
-          echo "Applied Java 17 and Kotlin 17 compilation settings."
+          gradle_file.write_text(gradle_code)
+          print("Configured Java and Kotlin for JVM 17.")
+          PY
 
       - name: Build APK
         run: |
